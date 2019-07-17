@@ -7,7 +7,7 @@ import (
     "bufio"
     "strings"
     "net"
-    "sync"
+   // "sync"
 )
 
 func main() {
@@ -36,30 +36,46 @@ func echo(c net.Conn, shout string, delay time.Duration) {
 }
 
 func handleConn(c net.Conn) {
-    
+    delay := make(chan struct{})
+    abort := make(chan struct{})
     tick := time.Tick(10*time.Second)
     fmt.Println(time.Now())
+    go func(){
+        for{
+            select {
+            case <- tick:
+                fmt.Println("No Call is coming in 10s, close conn", time.Now())
+                abort <- struct{}{}
+                return
+            case <- delay:
+                tick = time.Tick(10*time.Second)
+            }
+        }
+    }()
+
+    //var wg sync.WaitGroup
     go func(c net.Conn){
-        select {
-        case <- tick:
-            fmt.Println("No Call is coming in 10s, close conn", time.Now())
-            c.Close()
+        input := bufio.NewScanner(c)
+        for input.Scan() {
+            fmt.Println("Process Data",time.Now())
+            delay <- struct{}{}
+            //wg.Add(1)
+            go echo(c, input.Text(), 1*time.Second)
         }
     }(c)
-
-    input := bufio.NewScanner(c)
-    var wg sync.WaitGroup
-    for input.Scan() {
-        fmt.Println("Process Data",time.Now())
-        tick = time.Tick(10*time.Second)
-        wg.Add(1)
-        go echo(c, input.Text(), 1*time.Second)
-    }
     // NOTE: ignoring potential errors from input.Err()
 
-    go func(){
-        wg.Wait()
+    // go func(){
+    //     wg.Wait()
+    //     c.Close()
+    // }()
+
+    select{
+    case <- abort:
+        fmt.Println("finish conn",time.Now())
         c.Close()
-    }()
+        return;
+    }
+
 
 }
