@@ -5,6 +5,7 @@ import (
     "net"
     "log"
     "bufio"
+    "time"
 )
 
 func main() {
@@ -53,6 +54,24 @@ func broadfast() {
 }
 
 func handleConn(conn net.Conn) {
+    //close conn while no message coming in 1min
+    delay := make(chan struct{})
+    abort := make(chan struct{})
+    tick := time.Tick(60*time.Second)
+    fmt.Println(time.Now())
+    go func(){
+        for{
+            select {
+            case <- tick:
+                fmt.Println("No Call is coming in 60s, close conn", time.Now())
+                abort <- struct{}{}
+                return
+            case <- delay:
+                tick = time.Tick(60*time.Second)
+            }
+        }
+    }()
+
     ch := make(chan string)
     go clientWriter(conn, ch)
 
@@ -61,13 +80,20 @@ func handleConn(conn net.Conn) {
     messages <- who + " have arrived"
     entering <- ch
 
-    input := bufio.NewScanner(conn)
-    for input.Scan(){
-        messages <- who + ": " + input.Text()
-    }
+    go func(conn net.Conn){
+        input := bufio.NewScanner(conn)
+        for input.Scan(){
+            messages <- who + ": " + input.Text()
+            delay <- struct{}{}
+        }
+
+        //client have closed
+        abort <- struct{}{}
+    }(conn)
 
     // NOTE: ignoring potential errors from input.Err()
 
+    <-abort
     leaving <- ch
     messages <- who + " has left"
     conn.Close()
